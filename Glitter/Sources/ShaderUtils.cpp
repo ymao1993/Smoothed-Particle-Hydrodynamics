@@ -36,8 +36,10 @@ namespace ShaderUtils
 
 		fp = fopen(filename, "rb");
 
-		if (!fp)
-			return 0;
+		if (!fp) {
+ 		   printf("Cannot open file: %s\n", filename);
+                   return -1;
+		}
 
 		fseek(fp, 0, SEEK_END);
 		filesize = ftell(fp);
@@ -72,14 +74,7 @@ namespace ShaderUtils
 			{
 				char buffer[4096];
 				glGetShaderInfoLog(result, 4096, NULL, buffer);
-#ifdef _WIN32
-				OutputDebugStringA(filename);
-				OutputDebugStringA(":");
-				OutputDebugStringA(buffer);
-				OutputDebugStringA("\n");
-#else
-				fprintf(stderr, "%s: %s\n", filename, buffer);
-#endif
+				printf("%s: %s\n", filename, buffer);
 				goto fail_compile_shader;
 			}
 		}
@@ -116,12 +111,7 @@ namespace ShaderUtils
 			{
 				char buffer[4096];
 				glGetShaderInfoLog(sh, 4096, NULL, buffer);
-#ifdef _WIN32
-				OutputDebugStringA(buffer);
-				OutputDebugStringA("\n");
-#else
-				fprintf(stderr, "%s\n", buffer);
-#endif
+				printf("%s\n", buffer);
 				goto fail_compile_shader;
 			}
 		}
@@ -166,10 +156,6 @@ namespace ShaderUtils
 			{
 				char buffer[4096];
 				glGetProgramInfoLog(program, 4096, NULL, buffer);
-#ifdef _WIN32
-				OutputDebugStringA(buffer);
-				OutputDebugStringA("\n");
-#endif
 				glDeleteProgram(program);
 				return 0;
 			}

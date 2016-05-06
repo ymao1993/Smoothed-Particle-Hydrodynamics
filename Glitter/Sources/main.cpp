@@ -13,13 +13,17 @@
 #include <math.h>
 #include <algorithm>
 
+#include "ShaderUtils.hpp"
 #include "SPHSimulator.hpp"
+
 
 //application
 GLFWwindow* mWindow;
 
 //mouse input
 static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
+static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+
 static void onRelease();
 static void onPress();
 static void duringPress();
@@ -42,12 +46,25 @@ static SPHSim::BoxDef box;
 static float delta = 1./60;
 static SPHSim::SPHSimulator* simulator;
 
+//Rendering
+static const char* shaderFiles[] =
+{
+ "../Glitter/Shaders/pointSplat.vs",
+ "../Glitter/Shaders/pointSplat.fs"
+};
+static GLuint program;
+static GLuint vao;
+static GLuint vbo_pos;
+
 //forward declarations
 static void init();
 static void render();
 static void update();
 static void onExit();
 
+static void initShaders();
+static void initSPH();
+static void initCamera();
 static void renderBox();
 static void renderParticles();
 static void setTransform();
@@ -67,6 +84,7 @@ int main(int argc, char * argv[]) {
 
     //set mouse callback
     glfwSetMouseButtonCallback(mWindow, mouse_button_callback);
+    glfwSetScrollCallback(mWindow, scroll_callback);
 
     // Create Context and Load OpenGL Functions
     glfwMakeContextCurrent(mWindow);
@@ -75,7 +93,6 @@ int main(int argc, char * argv[]) {
 
     // Enable Depth Test
     glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_GREATER);
 
     // Initialization
     init();
@@ -89,7 +106,6 @@ int main(int argc, char * argv[]) {
 
         // Background Fill Color
         glClearColor(0.25f, 0.25f, 0.25f, 1.0f);
-        glClearDepth(-1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         update();
@@ -98,35 +114,57 @@ int main(int argc, char * argv[]) {
         // Flip Buffers and Draw
         glfwSwapBuffers(mWindow);
         glfwPollEvents();
-    }   glfwTerminate();
-
+    }  
+    
     onExit();
+    glfwTerminate();
 
     return EXIT_SUCCESS;
 }
 
 static void init()
 {
-    //set up model to view
-    //m2w = rotate(glm::radians(30.f), glm::vec3(1.f,1.f,0.f));
-    //m2w = rotate(glm::radians(10.f), glm::vec3(0.f,1.f,0.f)) * m2w;
+    initSPH();
+    initShaders();
+    initCamera();
 
-    //set up camera
-    vec3 eye(0,0,50);
-    vec3 center(0,0,0);
-    vec3 up(0,1,0);
-    w2v = lookAt(eye, center, up);
+    return;
+}
 
-    //set up perspective projection
-    pers_proj = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.0f);    
+enum
+{
+  LOCATION_POS,
+};
 
-    //setup cursor position
-    cursor_cur_x = CURSOR_POS_INVALID;
-    cursor_cur_y = CURSOR_POS_INVALID;
-    cursor_pre_x = CURSOR_POS_INVALID;
-    cursor_pre_y = CURSOR_POS_INVALID;
+static void initShaders()
+{   
+    //build shader program
+    GLuint shaders[2];
+    shaders[0] = ShaderUtils::loadShader(shaderFiles[0], GL_VERTEX_SHADER);
+    shaders[1] = ShaderUtils::loadShader(shaderFiles[1], GL_FRAGMENT_SHADER);
+    program = ShaderUtils::linkShaderProgram(shaders, 2, true);
 
-    //init SPH
+    //create vao
+    glGenVertexArrays(1,&vao);
+    glBindVertexArray(vao);
+
+    //create vbo
+    float* pos = NULL;
+    int numVertex;
+    simulator->getData(&pos, numVertex);   
+    glGenBuffers(1,&vbo_pos);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_pos);
+    glBufferStorage(GL_ARRAY_BUFFER, numVertex * 3 * sizeof(float), pos, GL_MAP_WRITE_BIT);
+    
+    //bind attributes
+    glVertexAttribBinding(LOCATION_POS, 0);
+    glBindVertexBuffer(0, vbo_pos, 0, sizeof(float) * 3);
+    glVertexAttribFormat(LOCATION_POS, 3, GL_FLOAT, GL_FALSE, 0);
+    glEnableVertexAttribArray(LOCATION_POS);
+
+}
+static void initSPH()
+{
     delta = 1./60;
 
     box.spanX = 25;
@@ -146,6 +184,25 @@ static void init()
     simulator = new SPHSim::SPHSimulator(conf);
     simulator->setup();
 
+    return;
+}
+static void initCamera()
+{
+    //set up camera
+    vec3 eye(0,0,30);
+    vec3 center(0,0,0);
+    vec3 up(0,1,0);
+    w2v = lookAt(eye, center, up);
+
+    //set up perspective projection
+    pers_proj = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.0f);    
+
+    //setup cursor position
+    cursor_cur_x = CURSOR_POS_INVALID;
+    cursor_cur_y = CURSOR_POS_INVALID;
+    cursor_pre_x = CURSOR_POS_INVALID;
+    cursor_pre_y = CURSOR_POS_INVALID;
+    
     return;
 }
 
@@ -198,24 +255,46 @@ static void renderBox()
   glEnd();
 }
 
+enum 
+{
+   LOCATION_R,
+   LOCATION_M2W,
+   LOCATION_W2V,
+   LOCATION_PERSP_PROJ,
+};
+
+
 static void renderParticles()
 {
-    float* data = NULL;
-    int num;
-    simulator->getData(&data, num);
+    //use program
+    glUseProgram(program);
+    glBindVertexArray(vao);
+    
+    //set uniforms
+    glUniform1f(LOCATION_R, 500);
+    glUniformMatrix4fv(LOCATION_M2W,        1, GL_FALSE, value_ptr(m2w));
+    glUniformMatrix4fv(LOCATION_W2V, 	    1, GL_FALSE, value_ptr(w2v));
+    glUniformMatrix4fv(LOCATION_PERSP_PROJ, 1, GL_FALSE, value_ptr(pers_proj));
 
-    glPointSize(2);
-    glBegin(GL_POINTS);
-    glColor3f(0,1,0);
-    for(int i=0; i<num; i++)
-    {
-        glVertex3f(data[3*i + 0],
-                   data[3*i + 1],
-                   data[3*i + 2]);
-    }
-    glEnd();
-    free(data);
+    //set configuration
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_POINT_SPRITE);
 
+    //update position vbo
+    int numVertex;
+    float* buffer;
+    buffer = (float*) glMapBuffer(GL_ARRAY_BUFFER,  GL_WRITE_ONLY);
+    simulator->getData(&buffer, numVertex);   
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+
+    //draw
+    glDrawArrays(GL_POINTS, 0, numVertex);
+
+    //reset
+    glDisable(GL_PROGRAM_POINT_SIZE);
+    glDisable(GL_POINT_SPRITE);
+    glUseProgram(0);
+    glBindVertexArray(0);
 }
 
 static void setTransform()
@@ -242,8 +321,8 @@ static void update()
 
     vec4 g(0.f,-1.f,0.f,0.f);
     g = inverse(m2w) * g;
-    simulator->setGravityDirection(g.x, g.y, g.z);
-    simulator->update(delta);
+    //simulator->setGravityDirection(g.x, g.y, g.z);
+    //simulator->update(delta);
 }
 
 //
@@ -259,6 +338,11 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
         else if(action == GLFW_RELEASE)
             onRelease();
     }
+}
+
+static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+   w2v = translate(w2v,vec3(0,0,yoffset));
 }
 
 static void onPress()
@@ -340,5 +424,8 @@ static void arcball_update()
 
 static void onExit()
 {
+    glDeleteProgram(program);
+    glDeleteVertexArrays(1,&vao);
+    glDeleteBuffers(1, &vbo_pos);
     delete simulator;
 }

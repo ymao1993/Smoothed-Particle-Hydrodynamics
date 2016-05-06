@@ -188,12 +188,9 @@ namespace SPHSim
 
 	void SPHSimulator::getData(float** position, int& vertexNum)
 	{
-		//free the space if needed
-		if(*position != NULL)
-			free(*position);
-
 		//allocate new memory
-		*position = (float*)malloc(sizeof(float) * particles.size() * 3);
+   		if(*position == NULL)
+		   *position = (float*)malloc(sizeof(float) * particles.size() * 3);
 		vertexNum = particles.size();
 
 		for(int i=0; i<vertexNum; i++)

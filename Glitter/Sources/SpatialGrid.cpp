@@ -22,12 +22,6 @@ SpatialGrid::SpatialGrid(double bx, double by, double bz, double lx, double ly, 
   arraySize(dim_x * dim_y * dim_z),
   grid(new SPHSim::Grid[arraySize])
 {
-	printf("SpatialGrid initialized:\n");
-	printf("base: %f, %f, %f\n", base_x, base_y, base_z);
-	printf("len: %f, %f, %f\n", len_x, len_y, len_z);
-	printf("dim: %d, %d, %d\n", dim_x, dim_y, dim_z);
-	printf("arraySize: %d\n", arraySize);
-	printf("grid_h: %f\n", grid_h);
 }
 
 void SpatialGrid::clearGrid()
