@@ -1,0 +1,3 @@
+/Users/MaoYu/Desktop/Smoothed-Particle-Hydrodynamics/build/CMakeFiles/Glitter.dir
+/Users/MaoYu/Desktop/Smoothed-Particle-Hydrodynamics/build/Glitter/Vendor/glfw/CMakeFiles/uninstall.dir
+/Users/MaoYu/Desktop/Smoothed-Particle-Hydrodynamics/build/Glitter/Vendor/glfw/src/CMakeFiles/glfw.dir
