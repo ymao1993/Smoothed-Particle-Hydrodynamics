@@ -13,6 +13,8 @@
 #include <math.h>
 #include <algorithm>
 
+#include "SOIL2.h"
+
 #include "ShaderUtils.hpp"
 #include "SPHSimulator.hpp"
 
@@ -50,11 +52,19 @@ static SPHSim::SPHSimulator* simulator;
 static const char* shaderFiles[] =
 {
  "../Glitter/Shaders/pointSplat.vs",
- "../Glitter/Shaders/pointSplat.fs"
+ "../Glitter/Shaders/pointSplat.fs",
+ "../Glitter/Shaders/GaussianBlur.cs"
 };
 static GLuint program;
 static GLuint vao;
 static GLuint vbo_pos;
+static GLuint colorBuffer;
+static GLuint depthBuffer;
+static GLuint fbo;
+static GLuint blurredColor;
+
+//shaders
+static GLuint blur_program;
 
 //forward declarations
 static void init();
@@ -65,9 +75,16 @@ static void onExit();
 static void initShaders();
 static void initSPH();
 static void initCamera();
+static void initOfflineRendering();
+static void initPostprocessing();
 static void renderBox();
-static void renderParticles();
+static void renderParticles(bool offscreen);
+static void blurTexture(GLuint input, GLuint output, int width, int height);
 static void setTransform();
+static void outputTexture2File(GLuint texture, const char* file);
+
+//tests
+static void testLoadImage();
 
 int main(int argc, char * argv[]) {
 
@@ -127,6 +144,8 @@ static void init()
     initSPH();
     initShaders();
     initCamera();
+    initOfflineRendering();
+    initPostprocessing();
 
     return;
 }
@@ -142,7 +161,10 @@ static void initShaders()
     GLuint shaders[2];
     shaders[0] = ShaderUtils::loadShader(shaderFiles[0], GL_VERTEX_SHADER);
     shaders[1] = ShaderUtils::loadShader(shaderFiles[1], GL_FRAGMENT_SHADER);
+    shaders[2] = ShaderUtils::loadShader(shaderFiles[2], GL_COMPUTE_SHADER);
     program = ShaderUtils::linkShaderProgram(shaders, 2, true);
+
+    blur_program = ShaderUtils::linkShaderProgram(&shaders[2], 1, true);
 
     //create vao
     glGenVertexArrays(1,&vao);
@@ -206,13 +228,62 @@ static void initCamera()
     return;
 }
 
+static void initOfflineRendering()
+{
+
+    //create fbo
+    glCreateFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    //create color buffer texture
+    glGenTextures(1, &colorBuffer);
+    glBindTexture(GL_TEXTURE_2D, colorBuffer);
+    glTextureStorage2D(colorBuffer, 1, GL_RGBA8, 512, 512);
+    
+    //attach the color buffer texture to fbo
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, colorBuffer, 0);
+
+    //create depth buffer texture
+    glGenTextures(1, &depthBuffer);
+    glBindTexture(GL_TEXTURE_2D, depthBuffer);
+    glTextureStorage2D(depthBuffer, 1, GL_DEPTH_COMPONENT32F, 512, 512);
+
+    //attach buffer textures to fbo
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT , depthBuffer, 0);
+    
+    //tell opengl which color attachments to render to
+    GLuint buffers[] = {GL_COLOR_ATTACHMENT0};
+    glDrawBuffers(1, buffers);
+
+    //recover
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0); 
+
+    //check fbo completeness
+    GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+    if(status!=GL_FRAMEBUFFER_COMPLETE)
+    {
+       printf("bad!!\n");
+    }
+
+    return;
+}
+
+static void initPostprocessing()
+{
+    glGenTextures(1, &blurredColor);
+    glBindTexture(GL_TEXTURE_2D, blurredColor);
+    glTextureStorage2D(blurredColor, 1, GL_RGBA8, 512, 512);   
+}
+
 //
 // RENDERING
 //
 static void render()
 {
     renderBox();
-    renderParticles();
+    renderParticles(false);
+    renderParticles(true);
 }
 
 static void renderBox()
@@ -264,8 +335,16 @@ enum
 };
 
 
-static void renderParticles()
+static void renderParticles(bool offscreen)
 {
+    if(offscreen)
+    {
+      //use fbo
+      glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+      glViewport(0,0,512,512);
+      glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
     //use program
     glUseProgram(program);
     glBindVertexArray(vao);
@@ -295,6 +374,32 @@ static void renderParticles()
     glDisable(GL_POINT_SPRITE);
     glUseProgram(0);
     glBindVertexArray(0);
+
+    if(offscreen)
+    {
+      glViewport(0,0, mWidth, mHeight);
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);  
+
+      blurTexture(colorBuffer, blurredColor, 512, 512);
+
+      outputTexture2File(colorBuffer, "color.png");
+      outputTexture2File(blurredColor, "bcolor.png");  
+    }
+}
+
+static void blurTexture(GLuint input, GLuint output, int width, int height)
+{
+  
+   glUseProgram(blur_program);   
+   glUniform1i(0, width);
+   glUniform1i(1, height);
+
+   glBindImageTexture(0, input , 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+   glBindImageTexture(1, output, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
+   glDispatchCompute(width/32,height/32,1);
+   glUseProgram(0);
+
+   return;
 }
 
 static void setTransform()
@@ -321,8 +426,8 @@ static void update()
 
     vec4 g(0.f,-1.f,0.f,0.f);
     g = inverse(m2w) * g;
-    //simulator->setGravityDirection(g.x, g.y, g.z);
-    //simulator->update(delta);
+    simulator->setGravityDirection(g.x, g.y, g.z);
+    simulator->update(delta);
 }
 
 //
@@ -428,4 +533,49 @@ static void onExit()
     glDeleteVertexArrays(1,&vao);
     glDeleteBuffers(1, &vbo_pos);
     delete simulator;
+}
+
+static void outputTexture2File(GLuint texture, const char* file)
+{ 
+   static unsigned char* data = new unsigned char[512 * 512 * 4];
+
+   glBindTexture(GL_TEXTURE_2D, texture);
+
+   //get texture image
+   glGetTexImage(GL_TEXTURE_2D, 0,
+  	GL_RGBA,
+  	GL_UNSIGNED_BYTE,
+  	data);
+   
+   glBindTexture(GL_TEXTURE_2D, 0);
+   
+   //write data to image file
+   int save_result = SOIL_save_image
+    (
+        file,
+        SOIL_SAVE_TYPE_PNG,
+        512, 512, 4,
+        data
+    );
+   
+   return;
+}
+
+
+static void testLoadImage()
+{
+     /* load an image file directly as a new OpenGL texture */
+     GLuint tex_2d = SOIL_load_OGL_texture
+     (
+      "img.png",
+      SOIL_LOAD_AUTO,
+      SOIL_CREATE_NEW_ID,
+      SOIL_FLAG_MIPMAPS | SOIL_FLAG_INVERT_Y | SOIL_FLAG_NTSC_SAFE_RGB | SOIL_FLAG_COMPRESS_TO_DXT
+     );
+
+     /* check for an error during the load process */
+    if( 0 == tex_2d )
+    {
+      printf( "SOIL loading error: '%s'\n", SOIL_last_result() );
+    } 
 }

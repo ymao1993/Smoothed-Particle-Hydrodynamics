@@ -2,7 +2,7 @@
 
 layout(location = 2) uniform mat4 w2v;
 
-out vec3 color;
+out vec4 color;
 
 void main()
 {  
@@ -15,6 +15,6 @@ void main()
    vec3 normal = vec3(pointCoord, sqrt(1-mag));
    
    //visualize normal
-   color = normal;
+   color = vec4(normal,1);
 }
 

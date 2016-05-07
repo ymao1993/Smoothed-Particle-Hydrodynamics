@@ -136,7 +136,6 @@ namespace ShaderUtils
 		GLuint program;
 
 		program = glCreateProgram();
-
 		for (i = 0; i < shader_count; i++)
 		{
 			glAttachShader(program, shaders[i]);
@@ -156,6 +155,7 @@ namespace ShaderUtils
 			{
 				char buffer[4096];
 				glGetProgramInfoLog(program, 4096, NULL, buffer);
+ 				printf("%s\n", buffer);
 				glDeleteProgram(program);
 				return 0;
 			}
