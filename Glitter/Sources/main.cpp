@@ -53,18 +53,21 @@ static const char* shaderFiles[] =
 {
  "../Glitter/Shaders/pointSplat.vs",
  "../Glitter/Shaders/pointSplat.fs",
- "../Glitter/Shaders/GaussianBlur.cs"
+ "../Glitter/Shaders/GaussianBlur.cs",
+ "../Glitter/Shaders/mapping.vs",
+ "../Glitter/Shaders/mapping.fs",
 };
 static GLuint program;
 static GLuint vao;
 static GLuint vbo_pos;
-static GLuint colorBuffer;
+static GLuint normalBuffer;
 static GLuint depthBuffer;
 static GLuint fbo;
-static GLuint blurredColor;
+static GLuint blurredNormal;
 
 //shaders
 static GLuint blur_program;
+static GLuint map_program;
 
 //forward declarations
 static void init();
@@ -79,9 +82,10 @@ static void initOfflineRendering();
 static void initPostprocessing();
 static void renderBox();
 static void renderParticles(bool offscreen);
+static void renderFluid();
 static void blurTexture(GLuint input, GLuint output, int width, int height);
 static void setTransform();
-static void outputTexture2File(GLuint texture, const char* file);
+static void outputTexture2File(GLuint texture, const char* file, GLenum format, GLenum type, int channel);
 
 //tests
 static void testLoadImage();
@@ -158,13 +162,15 @@ enum
 static void initShaders()
 {   
     //build shader program
-    GLuint shaders[2];
+    GLuint shaders[5];
     shaders[0] = ShaderUtils::loadShader(shaderFiles[0], GL_VERTEX_SHADER);
     shaders[1] = ShaderUtils::loadShader(shaderFiles[1], GL_FRAGMENT_SHADER);
     shaders[2] = ShaderUtils::loadShader(shaderFiles[2], GL_COMPUTE_SHADER);
-    program = ShaderUtils::linkShaderProgram(shaders, 2, true);
-
+    shaders[3] = ShaderUtils::loadShader(shaderFiles[3], GL_VERTEX_SHADER);
+    shaders[4] = ShaderUtils::loadShader(shaderFiles[4], GL_FRAGMENT_SHADER);
+    program = ShaderUtils::linkShaderProgram(&shaders[0], 2, true);
     blur_program = ShaderUtils::linkShaderProgram(&shaders[2], 1, true);
+    map_program = ShaderUtils::linkShaderProgram(&shaders[3], 2, true);
 
     //create vao
     glGenVertexArrays(1,&vao);
@@ -236,17 +242,17 @@ static void initOfflineRendering()
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
     //create color buffer texture
-    glGenTextures(1, &colorBuffer);
-    glBindTexture(GL_TEXTURE_2D, colorBuffer);
-    glTextureStorage2D(colorBuffer, 1, GL_RGBA8, 512, 512);
+    glGenTextures(1, &normalBuffer);
+    glBindTexture(GL_TEXTURE_2D, normalBuffer);
+    glTextureStorage2D(normalBuffer, 1, GL_RGBA8, mWidth, mHeight);
     
     //attach the color buffer texture to fbo
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, colorBuffer, 0);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, normalBuffer, 0);
 
     //create depth buffer texture
     glGenTextures(1, &depthBuffer);
     glBindTexture(GL_TEXTURE_2D, depthBuffer);
-    glTextureStorage2D(depthBuffer, 1, GL_DEPTH_COMPONENT32F, 512, 512);
+    glTextureStorage2D(depthBuffer, 1, GL_DEPTH_COMPONENT32F, mWidth, mHeight);
 
     //attach buffer textures to fbo
     glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT , depthBuffer, 0);
@@ -271,9 +277,9 @@ static void initOfflineRendering()
 
 static void initPostprocessing()
 {
-    glGenTextures(1, &blurredColor);
-    glBindTexture(GL_TEXTURE_2D, blurredColor);
-    glTextureStorage2D(blurredColor, 1, GL_RGBA8, 512, 512);   
+    glGenTextures(1, &blurredNormal);
+    glBindTexture(GL_TEXTURE_2D, blurredNormal);
+    glTextureStorage2D(blurredNormal, 1, GL_RGBA8, mWidth, mHeight);  
 }
 
 //
@@ -283,7 +289,6 @@ static void render()
 {
     renderBox();
     renderParticles(false);
-    renderParticles(true);
 }
 
 static void renderBox()
@@ -341,16 +346,17 @@ static void renderParticles(bool offscreen)
     {
       //use fbo
       glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-      glViewport(0,0,512,512);
+      glViewport(0,0,mWidth, mHeight);
       glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      glEnable(GL_DEPTH_TEST);
     }
     //use program
     glUseProgram(program);
     glBindVertexArray(vao);
     
     //set uniforms
-    glUniform1f(LOCATION_R, 500);
+    glUniform1f(LOCATION_R, 600);
     glUniformMatrix4fv(LOCATION_M2W,        1, GL_FALSE, value_ptr(m2w));
     glUniformMatrix4fv(LOCATION_W2V, 	    1, GL_FALSE, value_ptr(w2v));
     glUniformMatrix4fv(LOCATION_PERSP_PROJ, 1, GL_FALSE, value_ptr(pers_proj));
@@ -380,11 +386,47 @@ static void renderParticles(bool offscreen)
       glViewport(0,0, mWidth, mHeight);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);  
 
-      blurTexture(colorBuffer, blurredColor, 512, 512);
+      blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
 
-      outputTexture2File(colorBuffer, "color.png");
-      outputTexture2File(blurredColor, "bcolor.png");  
+      outputTexture2File(normalBuffer, "normal.png", GL_RGBA, GL_UNSIGNED_BYTE, 4);
+      outputTexture2File(blurredNormal, "normal_blurred.png", GL_RGBA, GL_UNSIGNED_BYTE, 4);
     }
+}
+
+static void renderFluid()
+{
+    //use program
+    glUseProgram(map_program);
+    glBindVertexArray(vao);
+    
+    //set uniforms
+    glUniform1f(LOCATION_R, 1200);
+    glUniformMatrix4fv(LOCATION_M2W,        1, GL_FALSE, value_ptr(m2w));
+    glUniformMatrix4fv(LOCATION_W2V, 	    1, GL_FALSE, value_ptr(w2v));
+    glUniformMatrix4fv(LOCATION_PERSP_PROJ, 1, GL_FALSE, value_ptr(pers_proj));
+
+    //set configuration
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_POINT_SPRITE);
+
+    //update position vbo
+    int numVertex;
+    float* buffer;
+    buffer = (float*) glMapBuffer(GL_ARRAY_BUFFER,  GL_WRITE_ONLY);
+    simulator->getData(&buffer, numVertex);   
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+   
+    //bind texture
+    glBindTexture(GL_TEXTURE_2D, blurredNormal);
+
+    //draw
+    glDrawArrays(GL_POINTS, 0, numVertex);
+
+    //reset
+    glDisable(GL_PROGRAM_POINT_SIZE);
+    glDisable(GL_POINT_SPRITE);
+    glUseProgram(0);
+    glBindVertexArray(0);
 }
 
 static void blurTexture(GLuint input, GLuint output, int width, int height)
@@ -535,16 +577,16 @@ static void onExit()
     delete simulator;
 }
 
-static void outputTexture2File(GLuint texture, const char* file)
+static void outputTexture2File(GLuint texture, const char* file, GLenum format, GLenum type, int channel)
 { 
-   static unsigned char* data = new unsigned char[512 * 512 * 4];
+   unsigned char* data = new unsigned char[mWidth * mHeight * channel];
 
    glBindTexture(GL_TEXTURE_2D, texture);
 
    //get texture image
    glGetTexImage(GL_TEXTURE_2D, 0,
-  	GL_RGBA,
-  	GL_UNSIGNED_BYTE,
+  	format,
+  	type,
   	data);
    
    glBindTexture(GL_TEXTURE_2D, 0);
@@ -554,9 +596,11 @@ static void outputTexture2File(GLuint texture, const char* file)
     (
         file,
         SOIL_SAVE_TYPE_PNG,
-        512, 512, 4,
+        mWidth, mHeight, channel,
         data
     );
+
+    delete[] data;
    
    return;
 }
