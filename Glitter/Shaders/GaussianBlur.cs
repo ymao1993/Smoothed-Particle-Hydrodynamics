@@ -5,8 +5,8 @@ layout(location = 0) uniform int width;
 layout(location = 1) uniform int height;
 
 //input&output image texture
-layout(binding = 0, rgba8) readonly uniform image2D inputImg;
-layout(binding = 1, rgba8) writeonly uniform image2D outputImg;
+layout(binding = 0, rgba32f) readonly uniform image2D inputImg;
+layout(binding = 1, rgba32f) writeonly uniform image2D outputImg;
 
 //local work group size
 layout(local_size_x = 32,

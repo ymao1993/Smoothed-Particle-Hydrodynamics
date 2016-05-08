@@ -13,7 +13,8 @@ void main()
 {
    //set point size according to eye-point distance
    vec4 eye2point = w2v * m2w * vec4(position,1);
-   float dist = length(eye2point);
+   vec3 eye2point3 = (eye2point/eye2point.w).xyz;
+   float dist = length(eye2point3);
    gl_PointSize = radius / dist;
    gl_Position = persp_proj * eye2point;
 }

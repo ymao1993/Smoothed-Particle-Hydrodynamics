@@ -9,8 +9,8 @@
 #define RESET_DENSITY   (1.2f) 
 #define G 				(9.8f)
 #define MIU				(0.1f)
-#define BOUNDARYDAMPING (0.2f)
-#define DAMPING 		(0.1f)
+#define BOUNDARYDAMPING (0.9f)
+#define DAMPING 		(0.5f)
 #define TENSION_COEF	(1.f)
 	
 namespace SPHSim

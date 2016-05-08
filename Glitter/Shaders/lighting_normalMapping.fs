@@ -7,6 +7,7 @@ layout(location = 4) uniform vec3 ambient;
 layout(location = 5) uniform vec3 diffuse;
 layout(location = 6) uniform vec3 specular;
 layout(location = 7) uniform vec3 ldir;  //light direction in view space
+layout(location = 8) uniform float shininess;
 
 uniform sampler2D normalMap;
 
@@ -25,13 +26,13 @@ void main()
    
    //fetch normal
    vec3 normal = texelFetch(normalMap, ivec2(gl_FragCoord.xy), 0).xyz;
-
+   
    //phong lighting
    color = vec4(ambient,1);
-   color += max(0,dot(normal, ldir)) * vec4(diffuse,1);
-   //vec3 eye = -normalize(vpos);
-   //color = pow(max(0,dot(eye, reflect(ldir, normal))),10) * vec4(specular,1);
-   //color = vec4(specular,1);
+   color += max(0,dot(normal, -ldir)) * vec4(diffuse,1);
+   vec3 eye = -normalize(vpos);
+   color += pow(max(0,dot(eye, reflect(ldir, normal))),shininess) * 
+            vec4(specular,1);
    color.a = 1;
 
 }

@@ -18,6 +18,7 @@
 #include "ShaderUtils.hpp"
 #include "SPHSimulator.hpp"
 
+#include "timer.hpp"
 
 //application
 GLFWwindow* mWindow;
@@ -49,10 +50,11 @@ static float delta = 1./60;
 static SPHSim::SPHSimulator* simulator;
 
 //Lighting
-static vec3 ambient(0.0,0.0,0.4);
-static vec3 diffuse(0.2,0.2,1.0);
-static vec3 specular(1.0,1.0,1.0);
-static vec3 lightDir(1.0,0.0,0.0);
+static vec3 ambient(0.2,0.0,0.0);
+static vec3 diffuse(0.5,0.0,0.0);
+static vec3 specular(3.0,3.0,3.0);
+static vec3 lightDir(-0.5774,-0.5774,-0.5774);
+static float shineness = 2;
 
 //**SHADERS**//
 #define PARTICLE_SPLAT_SIZE 400
@@ -109,7 +111,8 @@ enum
    LIGHTING_LOCATION_AMBIENT,
    LIGHTING_LOCATION_DIFFUSE,
    LIGHTING_LOCATION_SPECULAR,
-   LIGHTING_LOCATION_LDIR
+   LIGHTING_LOCATION_LDIR,
+   LIGHTING_LOCATION_SHINESNESS,
 };
 
 static GLuint lighting_program;
@@ -275,8 +278,8 @@ static void init_pointSplat()
   //recover
   glBindVertexArray(0);
   glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-}
+ 
+} 
 
 static void init_map()
 {
@@ -391,7 +394,7 @@ static void initCamera()
     w2v = lookAt(eye, center, up);
 
     //set up perspective projection
-    pers_proj = glm::perspective(45.0f, ((float)mWidth)/mHeight, 0.1f, 100.0f);    
+    pers_proj = glm::perspective(45.0f, ((float)mWidth)/mHeight, 0.1f, 500.0f);    
 
     //setup cursor position
     cursor_cur_x = CURSOR_POS_INVALID;
@@ -416,7 +419,7 @@ static void initOfflineRendering()
     //create color buffer texture
     glGenTextures(1, &normalBuffer);
     glBindTexture(GL_TEXTURE_2D, normalBuffer);
-    glTextureStorage2D(normalBuffer, 1, GL_RGBA8, mWidth, mHeight);
+    glTextureStorage2D(normalBuffer, 1, GL_RGBA32F, mWidth, mHeight);
     
     //attach the color buffer texture to fbo
     glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, normalBuffer, 0);
@@ -456,7 +459,7 @@ static void initPostprocessing()
 {
     glGenTextures(1, &blurredNormal);
     glBindTexture(GL_TEXTURE_2D, blurredNormal);
-    glTextureStorage2D(blurredNormal, 1, GL_RGBA8, mWidth, mHeight);  
+    glTextureStorage2D(blurredNormal, 1, GL_RGBA32F, mWidth, mHeight);  
 }
 
 //
@@ -465,8 +468,15 @@ static void initPostprocessing()
 static void render()
 {
     renderBox();
+
+    Timer timer;
+    timer.start();
     renderParticles(true);
     renderFluid();
+    timer.stop();
+    double time = timer.duration();
+    std::cout << "render: " << time * 1000 << "ms" << std::endl;
+
 }
 
 static void renderBox()
@@ -580,6 +590,7 @@ static void renderFluid()
     glUniform3fv(LIGHTING_LOCATION_SPECULAR, 1, value_ptr(specular));
     vec3 lDirV = vec3(w2v * vec4(lightDir,0));
     glUniform3fv(LIGHTING_LOCATION_LDIR, 1, value_ptr(lDirV));
+    glUniform1f(LIGHTING_LOCATION_SHINESNESS, shineness);
 
     //set configuration
     glEnable(GL_PROGRAM_POINT_SIZE);
@@ -610,8 +621,8 @@ static void blurTexture(GLuint input, GLuint output, int width, int height)
    glUseProgram(gaussianBlur_program);
    glUniform1i(0, width);
    glUniform1i(1, height);
-   glBindImageTexture(0, input , 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
-   glBindImageTexture(1, output, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
+   glBindImageTexture(0, input , 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+   glBindImageTexture(1, output, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
    glDispatchCompute((width+31)/32,(height+31)/32,1);
    glUseProgram(0);
 
@@ -643,7 +654,13 @@ static void update()
     vec4 g(0.f,-1.f,0.f,0.f);
     g = inverse(m2w) * g;
     simulator->setGravityDirection(g.x, g.y, g.z);
+
+    Timer timer;
+    timer.start();
     simulator->update(delta);
+    timer.stop(); 
+    double time = timer.duration();
+    std::cout << "simulation:" << time*1000 << "ms" << std::endl;
 }
 
 //
