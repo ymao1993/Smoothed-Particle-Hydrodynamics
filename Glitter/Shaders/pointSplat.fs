@@ -7,7 +7,7 @@ out vec4 color;
 void main()
 {  
    //compute point coord
-   vec2 pointCoord = 2 * (gl_PointCoord - vec2(0.5,0.5));
+   vec2 pointCoord = 2 * (gl_PointCoord - vec2(0.5,0.5)) * vec2(1,-1);
    
    //compute normal (in camera space)
    float mag = dot(pointCoord.xy, pointCoord.xy);

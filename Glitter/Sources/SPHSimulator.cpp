@@ -191,13 +191,17 @@ namespace SPHSim
 		//allocate new memory
    		if(*position == NULL)
 		   *position = (float*)malloc(sizeof(float) * particles.size() * 3);
-		vertexNum = particles.size();
+		vertexNum = 0;
 
-		for(int i=0; i<vertexNum; i++)
+		for(int i=0; i<particles.size(); i++)
 		{
-			(*position)[3*i+0] = particles[i].position.x;
-			(*position)[3*i+1] = particles[i].position.y;
-			(*position)[3*i+2] = particles[i].position.z;
+			if(true)
+			{
+				(*position)[3*vertexNum+0] = particles[i].position.x;
+				(*position)[3*vertexNum+1] = particles[i].position.y;
+				(*position)[3*vertexNum+2] = particles[i].position.z;
+				vertexNum ++;
+			}
 		}
 		return;
 	}

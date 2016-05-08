@@ -48,26 +48,96 @@ static SPHSim::BoxDef box;
 static float delta = 1./60;
 static SPHSim::SPHSimulator* simulator;
 
-//Rendering
-static const char* shaderFiles[] =
+//Lighting
+static vec3 ambient(0.0,0.0,0.4);
+static vec3 diffuse(0.2,0.2,1.0);
+static vec3 specular(1.0,1.0,1.0);
+static vec3 lightDir(1.0,0.0,0.0);
+
+//**SHADERS**//
+#define PARTICLE_SPLAT_SIZE 400
+//
+//pointSplat
+//
+static const char* pointSplat_files[] = 
 {
  "../Glitter/Shaders/pointSplat.vs",
- "../Glitter/Shaders/pointSplat.fs",
- "../Glitter/Shaders/GaussianBlur.cs",
- "../Glitter/Shaders/mapping.vs",
- "../Glitter/Shaders/mapping.fs",
+ "../Glitter/Shaders/pointSplat.fs"
 };
-static GLuint program;
-static GLuint vao;
-static GLuint vbo_pos;
+enum
+{
+  POINTSPLAT_LOCATION_POS,
+};
+enum 
+{
+   POINTSPLAT_LOCATION_R,
+   POINTSPLAT_LOCATION_M2W,
+   POINTSPLAT_LOCATION_W2V,
+   POINTSPLAT_LOCATION_PERSP_PROJ
+};
+static GLuint pointSplat_program;
+static GLuint pointSplat_vao;
+static GLuint vbo_pointSplat_pos;
+
+//
+//gaussian blur
+//
+static const char* gaussianBlur_files[] = 
+{
+  "../Glitter/Shaders/GaussianBlur.cs"
+};
+static GLuint gaussianBlur_program;
+
+//
+//texture mapping
+//
+static const char* lighting_files[] = 
+{
+  "../Glitter/Shaders/lighting_normalMapping.vs",
+  "../Glitter/Shaders/lighting_normalMapping.fs"
+};
+enum
+{
+   LIGHTING_LOCATION_POS,
+};
+enum 
+{
+   LIGHTING_LOCATION_R,
+   LIGHTING_LOCATION_M2W,
+   LIGHTING_LOCATION_W2V,
+   LIGHTING_LOCATION_PERSP_PROJ,
+   LIGHTING_LOCATION_AMBIENT,
+   LIGHTING_LOCATION_DIFFUSE,
+   LIGHTING_LOCATION_SPECULAR,
+   LIGHTING_LOCATION_LDIR
+};
+
+static GLuint lighting_program;
+static GLuint lighting_vao;
+static GLuint vbo_lighting_pos;
+
+//
+//depth visualization
+//
+static const char* depthview_files[] =
+{
+ "../Glitter/Shaders/depthview.vs",
+ "../Glitter/Shaders/depthview.fs",  
+};
+enum
+{
+  DEPTHVIEW_LOCATION_POS,
+};
+static GLuint depthview_program;
+static GLuint depthview_vao;
+static GLuint vbo_depthview_pos;
+
+//
+static GLuint fbo;
 static GLuint normalBuffer;
 static GLuint depthBuffer;
-static GLuint fbo;
 static GLuint blurredNormal;
 
-//shaders
-static GLuint blur_program;
-static GLuint map_program;
 
 //forward declarations
 static void init();
@@ -76,6 +146,10 @@ static void update();
 static void onExit();
 
 static void initShaders();
+static void init_pointSplat();
+static void init_map();
+static void init_gaussianBlur();
+static void init_depthview();
 static void initSPH();
 static void initCamera();
 static void initOfflineRendering();
@@ -89,6 +163,7 @@ static void outputTexture2File(GLuint texture, const char* file, GLenum format, 
 
 //tests
 static void testLoadImage();
+static void visualizeDepth(GLuint depth);
 
 int main(int argc, char * argv[]) {
 
@@ -151,46 +226,134 @@ static void init()
     initOfflineRendering();
     initPostprocessing();
 
+    GLenum  err =  glGetError();
+    if(err != GL_NO_ERROR)
+    {
+      std::cout << "OpenGL Error:" << err << std::endl;
+    }
+
     return;
 }
 
-enum
-{
-  LOCATION_POS,
-};
+//
+// Shader initializations
+//
 
 static void initShaders()
-{   
-    //build shader program
-    GLuint shaders[5];
-    shaders[0] = ShaderUtils::loadShader(shaderFiles[0], GL_VERTEX_SHADER);
-    shaders[1] = ShaderUtils::loadShader(shaderFiles[1], GL_FRAGMENT_SHADER);
-    shaders[2] = ShaderUtils::loadShader(shaderFiles[2], GL_COMPUTE_SHADER);
-    shaders[3] = ShaderUtils::loadShader(shaderFiles[3], GL_VERTEX_SHADER);
-    shaders[4] = ShaderUtils::loadShader(shaderFiles[4], GL_FRAGMENT_SHADER);
-    program = ShaderUtils::linkShaderProgram(&shaders[0], 2, true);
-    blur_program = ShaderUtils::linkShaderProgram(&shaders[2], 1, true);
-    map_program = ShaderUtils::linkShaderProgram(&shaders[3], 2, true);
+{
+    init_map();
+    init_pointSplat();
+    init_gaussianBlur();
+    init_depthview();
+}
 
-    //create vao
-    glGenVertexArrays(1,&vao);
-    glBindVertexArray(vao);
+static void init_pointSplat()
+{
+  GLuint shaders[2];
+  shaders[0] = ShaderUtils::loadShader(pointSplat_files[0], GL_VERTEX_SHADER);
+  shaders[1] = ShaderUtils::loadShader(pointSplat_files[1], GL_FRAGMENT_SHADER);
+  pointSplat_program = ShaderUtils::linkShaderProgram(&shaders[0], 2, true);
 
-    //create vbo
-    float* pos = NULL;
-    int numVertex;
-    simulator->getData(&pos, numVertex);   
-    glGenBuffers(1,&vbo_pos);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_pos);
-    glBufferStorage(GL_ARRAY_BUFFER, numVertex * 3 * sizeof(float), pos, GL_MAP_WRITE_BIT);
-    
-    //bind attributes
-    glVertexAttribBinding(LOCATION_POS, 0);
-    glBindVertexBuffer(0, vbo_pos, 0, sizeof(float) * 3);
-    glVertexAttribFormat(LOCATION_POS, 3, GL_FLOAT, GL_FALSE, 0);
-    glEnableVertexAttribArray(LOCATION_POS);
+  //create vao
+  glGenVertexArrays(1,&pointSplat_vao);
+  glBindVertexArray(pointSplat_vao);
+
+  //create vbo
+  float* pos = NULL;
+  int numVertex;
+  simulator->getData(&pos, numVertex);   
+  glGenBuffers(1,&vbo_pointSplat_pos);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo_pointSplat_pos);
+  glBufferStorage(GL_ARRAY_BUFFER, numVertex * 3 * sizeof(float), pos, GL_MAP_WRITE_BIT);
+  
+  //bind attributes
+  glVertexAttribBinding(POINTSPLAT_LOCATION_POS, 0);
+  glBindVertexBuffer(0, vbo_pointSplat_pos, 0, sizeof(float) * 3);
+  glVertexAttribFormat(POINTSPLAT_LOCATION_POS, 3, GL_FLOAT, GL_FALSE, 0);
+  glEnableVertexAttribArray(POINTSPLAT_LOCATION_POS);
+
+  //recover
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 }
+
+static void init_map()
+{
+  GLuint shaders[2];
+  shaders[0] = ShaderUtils::loadShader(lighting_files[0], GL_VERTEX_SHADER);
+  shaders[1] = ShaderUtils::loadShader(lighting_files[1], GL_FRAGMENT_SHADER);
+  lighting_program = ShaderUtils::linkShaderProgram(&shaders[0], 2, true);
+
+  //create vao
+  glGenVertexArrays(1,&lighting_vao);
+  glBindVertexArray(lighting_vao);
+
+  //create vbo
+  float* pos = NULL;
+  int numVertex;
+  simulator->getData(&pos, numVertex);   
+  glGenBuffers(1,&vbo_lighting_pos);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo_lighting_pos);
+  glBufferStorage(GL_ARRAY_BUFFER, numVertex * 3 * sizeof(float), pos, GL_MAP_WRITE_BIT);
+  
+  //bind attributes
+  glVertexAttribBinding(LIGHTING_LOCATION_POS, 0);
+  glBindVertexBuffer(0, vbo_lighting_pos, 0, sizeof(float) * 3);
+  glVertexAttribFormat(LIGHTING_LOCATION_POS, 3, GL_FLOAT, GL_FALSE, 0);
+  glEnableVertexAttribArray(LIGHTING_LOCATION_POS);
+
+  //recover
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+static void init_gaussianBlur()
+{
+  GLuint shaders[1];
+  shaders[0] = ShaderUtils::loadShader(gaussianBlur_files[0], GL_COMPUTE_SHADER);  
+  gaussianBlur_program = ShaderUtils::linkShaderProgram(shaders, 1, true);
+}
+
+static void init_depthview()
+{
+  GLuint shaders[2];
+  shaders[0] = ShaderUtils::loadShader(depthview_files[0], GL_VERTEX_SHADER);
+  shaders[1] = ShaderUtils::loadShader(depthview_files[1], GL_FRAGMENT_SHADER);
+  depthview_program = ShaderUtils::linkShaderProgram(&shaders[0], 2, true);
+
+  glGenVertexArrays(1,&depthview_vao);
+  glBindVertexArray(depthview_vao);
+  glGenBuffers(1,&vbo_depthview_pos);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo_depthview_pos);
+
+
+  GLfloat fullscreen[] = {-1.f, -1.f, 0,
+                          -1.f, 1.f, 0,
+                          1.f, -1.f, 0,
+                          -1.f, 1.f, 0,
+                          1.f, -1.f, 0,
+                          1.f, 1.f, 0 };
+
+
+  glBufferStorage(GL_ARRAY_BUFFER, sizeof(fullscreen), fullscreen, GL_MAP_READ_BIT);
+  
+  //bind attributes
+  glVertexAttribBinding(DEPTHVIEW_LOCATION_POS, 0);
+  glBindVertexBuffer(0, vbo_depthview_pos, 0, sizeof(float) * 3);
+  glVertexAttribFormat(DEPTHVIEW_LOCATION_POS, 3, GL_FLOAT, GL_FALSE, 0);
+  glEnableVertexAttribArray(DEPTHVIEW_LOCATION_POS);
+
+  //recover
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+}
+
+//
+//SPH Initialization
+//
+
 static void initSPH()
 {
     delta = 1./60;
@@ -214,6 +377,11 @@ static void initSPH()
 
     return;
 }
+
+//
+//Camera Initialization
+//
+
 static void initCamera()
 {
     //set up camera
@@ -223,7 +391,7 @@ static void initCamera()
     w2v = lookAt(eye, center, up);
 
     //set up perspective projection
-    pers_proj = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.0f);    
+    pers_proj = glm::perspective(45.0f, ((float)mWidth)/mHeight, 0.1f, 100.0f);    
 
     //setup cursor position
     cursor_cur_x = CURSOR_POS_INVALID;
@@ -233,6 +401,10 @@ static void initCamera()
     
     return;
 }
+
+//
+// Offline Rendering Initialization: fbo
+//
 
 static void initOfflineRendering()
 {
@@ -263,7 +435,7 @@ static void initOfflineRendering()
 
     //recover
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glBindTexture(GL_TEXTURE_2D, 0); 
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     //check fbo completeness
     GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
@@ -275,6 +447,11 @@ static void initOfflineRendering()
     return;
 }
 
+
+//
+// initialization for post processing
+// eg. textures, buffers, ect.
+//
 static void initPostprocessing()
 {
     glGenTextures(1, &blurredNormal);
@@ -288,7 +465,8 @@ static void initPostprocessing()
 static void render()
 {
     renderBox();
-    renderParticles(false);
+    renderParticles(true);
+    renderFluid();
 }
 
 static void renderBox()
@@ -331,15 +509,6 @@ static void renderBox()
   glEnd();
 }
 
-enum 
-{
-   LOCATION_R,
-   LOCATION_M2W,
-   LOCATION_W2V,
-   LOCATION_PERSP_PROJ,
-};
-
-
 static void renderParticles(bool offscreen)
 {
     if(offscreen)
@@ -352,14 +521,14 @@ static void renderParticles(bool offscreen)
       glEnable(GL_DEPTH_TEST);
     }
     //use program
-    glUseProgram(program);
-    glBindVertexArray(vao);
+    glUseProgram(pointSplat_program);
+    glBindVertexArray(pointSplat_vao);
     
     //set uniforms
-    glUniform1f(LOCATION_R, 600);
-    glUniformMatrix4fv(LOCATION_M2W,        1, GL_FALSE, value_ptr(m2w));
-    glUniformMatrix4fv(LOCATION_W2V, 	    1, GL_FALSE, value_ptr(w2v));
-    glUniformMatrix4fv(LOCATION_PERSP_PROJ, 1, GL_FALSE, value_ptr(pers_proj));
+    glUniform1f(POINTSPLAT_LOCATION_R, PARTICLE_SPLAT_SIZE);
+    glUniformMatrix4fv(POINTSPLAT_LOCATION_M2W,        1, GL_FALSE, value_ptr(m2w));
+    glUniformMatrix4fv(POINTSPLAT_LOCATION_W2V, 	      1, GL_FALSE, value_ptr(w2v));
+    glUniformMatrix4fv(POINTSPLAT_LOCATION_PERSP_PROJ, 1, GL_FALSE, value_ptr(pers_proj));
 
     //set configuration
     glEnable(GL_PROGRAM_POINT_SIZE);
@@ -368,9 +537,9 @@ static void renderParticles(bool offscreen)
     //update position vbo
     int numVertex;
     float* buffer;
-    buffer = (float*) glMapBuffer(GL_ARRAY_BUFFER,  GL_WRITE_ONLY);
+    buffer = (float*) glMapNamedBuffer(vbo_pointSplat_pos,  GL_WRITE_ONLY);
     simulator->getData(&buffer, numVertex);   
-    glUnmapBuffer(GL_ARRAY_BUFFER);
+    glUnmapNamedBuffer(vbo_pointSplat_pos);
 
     //draw
     glDrawArrays(GL_POINTS, 0, numVertex);
@@ -386,24 +555,31 @@ static void renderParticles(bool offscreen)
       glViewport(0,0, mWidth, mHeight);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);  
 
+      for(int i=0; i<4; i++)
+      {
+        blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
+        blurTexture(blurredNormal, normalBuffer, mWidth, mHeight);
+      }
       blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
-
-      outputTexture2File(normalBuffer, "normal.png", GL_RGBA, GL_UNSIGNED_BYTE, 4);
-      outputTexture2File(blurredNormal, "normal_blurred.png", GL_RGBA, GL_UNSIGNED_BYTE, 4);
     }
 }
 
 static void renderFluid()
 {
     //use program
-    glUseProgram(map_program);
-    glBindVertexArray(vao);
+    glUseProgram(lighting_program);
+    glBindVertexArray(lighting_vao);
     
     //set uniforms
-    glUniform1f(LOCATION_R, 1200);
-    glUniformMatrix4fv(LOCATION_M2W,        1, GL_FALSE, value_ptr(m2w));
-    glUniformMatrix4fv(LOCATION_W2V, 	    1, GL_FALSE, value_ptr(w2v));
-    glUniformMatrix4fv(LOCATION_PERSP_PROJ, 1, GL_FALSE, value_ptr(pers_proj));
+    glUniform1f(LIGHTING_LOCATION_R, PARTICLE_SPLAT_SIZE);
+    glUniformMatrix4fv(LIGHTING_LOCATION_M2W,        1, GL_FALSE, value_ptr(m2w));
+    glUniformMatrix4fv(LIGHTING_LOCATION_W2V, 	    1, GL_FALSE, value_ptr(w2v));
+    glUniformMatrix4fv(LIGHTING_LOCATION_PERSP_PROJ, 1, GL_FALSE, value_ptr(pers_proj));
+    glUniform3fv(LIGHTING_LOCATION_AMBIENT, 1, value_ptr(ambient));
+    glUniform3fv(LIGHTING_LOCATION_DIFFUSE, 1, value_ptr(diffuse));
+    glUniform3fv(LIGHTING_LOCATION_SPECULAR, 1, value_ptr(specular));
+    vec3 lDirV = vec3(w2v * vec4(lightDir,0));
+    glUniform3fv(LIGHTING_LOCATION_LDIR, 1, value_ptr(lDirV));
 
     //set configuration
     glEnable(GL_PROGRAM_POINT_SIZE);
@@ -412,9 +588,9 @@ static void renderFluid()
     //update position vbo
     int numVertex;
     float* buffer;
-    buffer = (float*) glMapBuffer(GL_ARRAY_BUFFER,  GL_WRITE_ONLY);
-    simulator->getData(&buffer, numVertex);   
-    glUnmapBuffer(GL_ARRAY_BUFFER);
+    buffer = (float*) glMapNamedBuffer(vbo_lighting_pos,  GL_WRITE_ONLY);
+    simulator->getData(&buffer, numVertex);
+    glUnmapNamedBuffer(vbo_lighting_pos);
    
     //bind texture
     glBindTexture(GL_TEXTURE_2D, blurredNormal);
@@ -431,14 +607,12 @@ static void renderFluid()
 
 static void blurTexture(GLuint input, GLuint output, int width, int height)
 {
-  
-   glUseProgram(blur_program);   
+   glUseProgram(gaussianBlur_program);
    glUniform1i(0, width);
    glUniform1i(1, height);
-
    glBindImageTexture(0, input , 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
    glBindImageTexture(1, output, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
-   glDispatchCompute(width/32,height/32,1);
+   glDispatchCompute((width+31)/32,(height+31)/32,1);
    glUseProgram(0);
 
    return;
@@ -571,9 +745,9 @@ static void arcball_update()
 
 static void onExit()
 {
-    glDeleteProgram(program);
-    glDeleteVertexArrays(1,&vao);
-    glDeleteBuffers(1, &vbo_pos);
+    glDeleteProgram(pointSplat_program);
+    glDeleteVertexArrays(1,&pointSplat_vao);
+    glDeleteBuffers(1, &vbo_pointSplat_pos);
     delete simulator;
 }
 
@@ -603,6 +777,16 @@ static void outputTexture2File(GLuint texture, const char* file, GLenum format, 
     delete[] data;
    
    return;
+}
+
+static void visualizeDepth(GLuint depth)
+{
+  glUseProgram(depthview_program);
+  glBindVertexArray(depthview_vao);
+  //glBindImageTexture(0, depthBuffer, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
+  glBindTexture(GL_TEXTURE_2D, depthBuffer);
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+  glUseProgram(0);
 }
 
 

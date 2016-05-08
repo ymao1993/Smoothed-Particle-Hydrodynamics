@@ -20,7 +20,7 @@ using glm::dot;
 using glm::cross;
 
 // Define Some Constants
-const int mWidth = 1280;
-const int mHeight = 800;
+const int mWidth = 500;
+const int mHeight = 400;
 
 #endif //~ Glitter Header
