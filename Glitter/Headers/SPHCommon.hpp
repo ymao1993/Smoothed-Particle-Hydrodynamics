@@ -44,6 +44,12 @@ namespace SPHSim
 		}
 	};
 
+	struct Bucket
+	{
+		int startIndex;
+		int size;
+	};
+
 	struct Grid
 	{
 		bool flag;

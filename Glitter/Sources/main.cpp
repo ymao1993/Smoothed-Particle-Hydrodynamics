@@ -16,7 +16,7 @@
 #include "SOIL2.h"
 
 #include "ShaderUtils.hpp"
-#include "SPHSimulator.hpp"
+#include "SPHSimulator.cuh"
 
 #include "timer.hpp"
 
@@ -396,8 +396,8 @@ static void initSPH()
     delta = 1./60;
 
     box.spanX = 25;
-    box.spanY = 25;
-    box.spanZ = 25;
+    box.spanY = 50;
+    box.spanZ = 50;
 
     SPHSim::SPHConfig conf;
     conf.kernel_h = KERNEL_H;
@@ -421,12 +421,9 @@ static void initSPH()
 
 static void initCamera()
 {
-    m2w = rotate(0.5f, vec3(1,0,0));
-    m2w = rotate(0.1f, vec3(0,0,1));
-
     //set up camera
-    vec3 eye(0,0,70);
-    vec3 center(0,0,0);
+    vec3 eye((float)box.spanX/2,(float)box.spanY/2, 110.f);
+    vec3 center((float)box.spanX/2,(float)box.spanY/2,(float)box.spanZ/2);
     vec3 up(0,1,0);
     w2v = lookAt(eye, center, up);
 
@@ -531,32 +528,32 @@ static void renderBox()
 
   glBegin(GL_LINES);
       glColor3f(1,0,0);
-      glVertex3f( -boxX/2, -boxY/2,  boxZ/2);
-      glVertex3f(  boxX/2, -boxY/2,  boxZ/2);
-      glVertex3f( -boxX/2,  boxY/2,  boxZ/2);
-      glVertex3f(  boxX/2,  boxY/2,  boxZ/2);
-      glVertex3f( -boxX/2, -boxY/2,  -boxZ/2);
-      glVertex3f(  boxX/2, -boxY/2,  -boxZ/2);
-      glVertex3f( -boxX/2,  boxY/2,  -boxZ/2);
-      glVertex3f(  boxX/2,  boxY/2,  -boxZ/2);
+      glVertex3f(  0, 0,  boxZ);
+      glVertex3f(  boxX, 0,  boxZ);
+      glVertex3f(  0,  boxY,  boxZ);
+      glVertex3f(  boxX,  boxY,  boxZ);
+      glVertex3f(  0, 0, 0);
+      glVertex3f(  boxX, 0,  0);
+      glVertex3f(  0,  boxY,  0);
+      glVertex3f(  boxX,  boxY, 0);
 
-      glVertex3f(  boxX/2,  boxY/2,   boxZ/2);
-      glVertex3f(  boxX/2, -boxY/2,   boxZ/2);
-      glVertex3f(  boxX/2,  boxY/2,  -boxZ/2);
-      glVertex3f(  boxX/2, -boxY/2,  -boxZ/2);
-      glVertex3f( -boxX/2,  boxY/2,   boxZ/2);
-      glVertex3f( -boxX/2, -boxY/2,   boxZ/2);
-      glVertex3f( -boxX/2,  boxY/2,  -boxZ/2);
-      glVertex3f( -boxX/2, -boxY/2,  -boxZ/2);
+      glVertex3f(  boxX,  boxY,   boxZ);
+      glVertex3f(  boxX,  0,   boxZ);
+      glVertex3f(  boxX,  boxY, 0);
+      glVertex3f(  boxX,  0,   0);
+      glVertex3f(  0,  boxY,   boxZ);
+      glVertex3f(  0,  0,   boxZ);
+      glVertex3f(  0,  boxY,  0);
+      glVertex3f(  0,  0,  0);
 
-      glVertex3f(  boxX/2,  boxY/2,   boxZ/2);
-      glVertex3f(  boxX/2,  boxY/2,  -boxZ/2);
-      glVertex3f(  boxX/2,  -boxY/2,  boxZ/2);
-      glVertex3f(  boxX/2,  -boxY/2,  -boxZ/2);
-      glVertex3f(  -boxX/2,  boxY/2,  boxZ/2);
-      glVertex3f(  -boxX/2,  boxY/2,  -boxZ/2);
-      glVertex3f(  -boxX/2,  -boxY/2, boxZ/2);
-      glVertex3f(  -boxX/2,  -boxY/2,  -boxZ/2);
+      glVertex3f(  boxX,  boxY,   boxZ);
+      glVertex3f(  boxX,  boxY,   0);
+      glVertex3f(  boxX,  0,  boxZ);
+      glVertex3f(  boxX,  0,  0);
+      glVertex3f(  0,  boxY,  boxZ);
+      glVertex3f(  0,  boxY,  0);
+      glVertex3f(  0,  0, boxZ);
+      glVertex3f(  0,  0, 0);
 
   glEnd();
 }
@@ -617,7 +614,7 @@ static void renderParticles(bool offscreen)
       blurTextureFast(normalBuffer, mWidth, mHeight);
       timer.stop();
       double time = timer.duration();
-      std::cout << "blurring:" << time * 1000 << std::endl;
+      //std::cout << "blurring:" << time * 1000 << std::endl;
     }
 }
 
@@ -752,7 +749,7 @@ static void update()
     simulator->update(delta);
     timer.stop(); 
     double time = timer.duration();
-    //std::cout << "simulation:" << time*1000 << "ms" << std::endl;
+    std::cout << "simulation:" << time*1000 << "ms" << std::endl;
 }
 
 //
@@ -847,7 +844,9 @@ static void arcball_update()
     r *= speed_factor;
 
     //update m2w matrix
-    m2w = rotate(r, u) * m2w;
+    mat4 t1 = translate(mat4(),vec3(-box.spanX/2,-box.spanY/2,-box.spanZ/2));
+    mat4 t2 = translate(mat4(),vec3( box.spanX/2, box.spanY/2, box.spanZ/2));
+    m2w =  t2 * rotate(r, u) * t1 * m2w;
 
     return;
 }

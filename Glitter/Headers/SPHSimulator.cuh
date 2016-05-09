@@ -2,7 +2,6 @@
 #define SPHSIMULATOR_H
 
 #include "SPHCommon.hpp"
-#include "SpatialGrid.hpp"
 
 /**
  * Fluid simulator based on Smoothed Particle Hydrodynamics(SPH)
@@ -24,6 +23,7 @@
 
 namespace SPHSim
 {
+
 	struct BoxDef
 	{
 		double spanX;
@@ -94,16 +94,61 @@ namespace SPHSim
 
 	private:
 		SPHConfig conf;
-		SpatialGrid particleGrid;
+
 		std::vector<SPHParticle> particles;
+		std::vector<int> indices;
 		vec3 gravityDir;
 
-		/*predefined kernels*/
-		inline float wPoly6(vec3 rvec, float h);
-		inline vec3  wSpikyGradient(vec3 rvec, float h);
-		inline float wViscosityLaplacian(vec3 rvec, float h);
-		inline vec3  wPoly6Gradient(vec3 rvec, float h);
-		inline float wPoly6Laplacian(vec3 rvec, float h);
+		/*  <Device memory>  */
+		// position
+		double* device_position;
+		// velocity
+		double* device_velocity;
+		// force
+		double* device_force;
+		// mass
+		float* device_mass;
+		// density
+		float* device_density;
+		// presure
+		float* device_pressure;
+		// neighbor
+		int* device_neighbors;
+		// bucket
+		Bucket* device_bucket;
+		// index
+		int* device_index;
+		// bucket index
+		int* device_bucket_index;
+		// bucket_mask
+		int* device_bucket_mask;
+		// exclusive scan
+		int* device_scan;
+		// compressed bucket
+		int* device_compressed_bucket;
+
+		
+
+		/*  <Host memory>  */
+		// position
+		double* host_position;
+		// velocity
+		double* host_velocity;	
+		// force
+		double* host_force;
+		// mass
+		float* host_mass;
+		// neighbors
+		int* host_neighbors;
+
+		// numOfParticle
+		int N;
+		int dim_x;
+		int dim_y;
+		int dim_z; 
+		int arraySize;
+
+
 
 	};
 }
