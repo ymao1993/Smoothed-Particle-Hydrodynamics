@@ -31,7 +31,7 @@ void main()
    color = vec4(ambient,1);
    color += max(0,dot(normal, -ldir)) * vec4(diffuse,1);
    vec3 eye = -normalize(vpos);
-   color += pow(max(0,dot(eye, reflect(ldir, normal))),shininess) * 
+   color += pow(max(0,dot(eye, reflect(ldir, normal))), shininess) * 
             vec4(specular,1);
    color.a = 1;
 

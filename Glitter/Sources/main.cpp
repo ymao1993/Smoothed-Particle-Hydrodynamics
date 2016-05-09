@@ -159,6 +159,7 @@ static void initOfflineRendering();
 static void initPostprocessing();
 static void renderBox();
 static void renderParticles(bool offscreen);
+static void renderParticlesAsPoints();
 static void renderFluid();
 static void blurTexture(GLuint input, GLuint output, int width, int height);
 static void setTransform();
@@ -387,8 +388,11 @@ static void initSPH()
 
 static void initCamera()
 {
+    m2w = rotate(0.5f, vec3(1,0,0));
+    m2w = rotate(0.1f, vec3(0,0,1));
+
     //set up camera
-    vec3 eye(0,0,30);
+    vec3 eye(0,30,70);
     vec3 center(0,0,0);
     vec3 up(0,1,0);
     w2v = lookAt(eye, center, up);
@@ -471,6 +475,7 @@ static void render()
 
     Timer timer;
     timer.start();
+    //renderParticlesAsPoints();
     renderParticles(true);
     renderFluid();
     timer.stop();
@@ -572,6 +577,25 @@ static void renderParticles(bool offscreen)
       }
       blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
     }
+}
+
+static void renderParticlesAsPoints()
+{
+     float* data = NULL;
+     int num;
+     simulator->getData(&data, num);
+ 
+     glPointSize(1);
+     glBegin(GL_POINTS);
+     glColor3f(1,0,0);
+     for(int i=0; i<num; i++)
+     {
+         glVertex3f(data[3*i + 0],
+                    data[3*i + 1],
+                    data[3*i + 2]);
+     }
+     glEnd();
+     free(data);
 }
 
 static void renderFluid()
