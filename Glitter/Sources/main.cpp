@@ -22,6 +22,8 @@
 
 #include "GaussianBlur.hpp"
 
+#include "cudaTest.hpp"
+
 //application
 GLFWwindow* mWindow;
 
@@ -186,8 +188,8 @@ static void visualizeDepth(GLuint depth);
 
 int main(int argc, char * argv[]) {
 
-    // std::string shader = GenerateGaussFunctionCode(15);
-    // std::cout << shader << std::endl;
+    // test cuda!!
+    // cuda_test();
     // exit(-1);
 
     // Load GLFW and Create a Window
