@@ -20,6 +20,8 @@
 
 #include "timer.hpp"
 
+#include "GaussianBlur.hpp"
+
 //application
 GLFWwindow* mWindow;
 
@@ -91,6 +93,16 @@ static const char* gaussianBlur_files[] =
 static GLuint gaussianBlur_program;
 
 //
+//fast 7x7 gaussian blur
+//
+static const char* fastGaussianBlur_files[] = 
+{
+  "../Glitter/Shaders/fastGaussianBlur.cs"
+};
+static GLuint fastGaussianBlur_program;
+static GLuint fastGaussianBlur_sampler;
+
+//
 //texture mapping
 //
 static const char* lighting_files[] = 
@@ -140,6 +152,7 @@ static GLuint fbo;
 static GLuint normalBuffer;
 static GLuint depthBuffer;
 static GLuint blurredNormal;
+static GLuint fastBlurredNormaltmp; //this will only be served as a temporary storage
 
 
 //forward declarations
@@ -152,6 +165,7 @@ static void initShaders();
 static void init_pointSplat();
 static void init_map();
 static void init_gaussianBlur();
+static void init_fastGaussianBlur();
 static void init_depthview();
 static void initSPH();
 static void initCamera();
@@ -162,6 +176,7 @@ static void renderParticles(bool offscreen);
 static void renderParticlesAsPoints();
 static void renderFluid();
 static void blurTexture(GLuint input, GLuint output, int width, int height);
+static void blurTextureFast(GLuint texture, int width, int height);
 static void setTransform();
 static void outputTexture2File(GLuint texture, const char* file, GLenum format, GLenum type, int channel);
 
@@ -170,6 +185,10 @@ static void testLoadImage();
 static void visualizeDepth(GLuint depth);
 
 int main(int argc, char * argv[]) {
+
+    // std::string shader = GenerateGaussFunctionCode(15);
+    // std::cout << shader << std::endl;
+    // exit(-1);
 
     // Load GLFW and Create a Window
     glfwInit();
@@ -248,6 +267,7 @@ static void initShaders()
     init_map();
     init_pointSplat();
     init_gaussianBlur();
+    init_fastGaussianBlur();
     init_depthview();
 }
 
@@ -319,6 +339,18 @@ static void init_gaussianBlur()
   gaussianBlur_program = ShaderUtils::linkShaderProgram(shaders, 1, true);
 }
 
+static void init_fastGaussianBlur()
+{
+  GLuint shaders[1];
+  shaders[0] = ShaderUtils::loadShader(fastGaussianBlur_files[0], GL_COMPUTE_SHADER);  
+  fastGaussianBlur_program = ShaderUtils::linkShaderProgram(shaders, 1, true); 
+
+  glGenSamplers(1, &fastGaussianBlur_sampler);
+  glSamplerParameteri(fastGaussianBlur_sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glSamplerParameteri(fastGaussianBlur_sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glSamplerParameteri(fastGaussianBlur_sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+}
+
 static void init_depthview()
 {
   GLuint shaders[2];
@@ -326,11 +358,10 @@ static void init_depthview()
   shaders[1] = ShaderUtils::loadShader(depthview_files[1], GL_FRAGMENT_SHADER);
   depthview_program = ShaderUtils::linkShaderProgram(&shaders[0], 2, true);
 
-  glGenVertexArrays(1,&depthview_vao);
+  glGenVertexArrays(1, &depthview_vao);
   glBindVertexArray(depthview_vao);
-  glGenBuffers(1,&vbo_depthview_pos);
+  glGenBuffers(1, &vbo_depthview_pos);
   glBindBuffer(GL_ARRAY_BUFFER, vbo_depthview_pos);
-
 
   GLfloat fullscreen[] = {-1.f, -1.f, 0,
                           -1.f, 1.f, 0,
@@ -392,7 +423,7 @@ static void initCamera()
     m2w = rotate(0.1f, vec3(0,0,1));
 
     //set up camera
-    vec3 eye(0,30,70);
+    vec3 eye(0,0,70);
     vec3 center(0,0,0);
     vec3 up(0,1,0);
     w2v = lookAt(eye, center, up);
@@ -464,6 +495,10 @@ static void initPostprocessing()
     glGenTextures(1, &blurredNormal);
     glBindTexture(GL_TEXTURE_2D, blurredNormal);
     glTextureStorage2D(blurredNormal, 1, GL_RGBA32F, mWidth, mHeight);  
+
+    glGenTextures(1, &fastBlurredNormaltmp);
+    glBindTexture(GL_TEXTURE_2D, fastBlurredNormaltmp);
+    glTextureStorage2D(fastBlurredNormaltmp, 1, GL_RGBA32F, mWidth, mHeight);  
 }
 
 //
@@ -480,7 +515,7 @@ static void render()
     renderFluid();
     timer.stop();
     double time = timer.duration();
-    std::cout << "render: " << time * 1000 << "ms" << std::endl;
+    //std::cout << "render: " << time * 1000 << "ms" << std::endl;
 
 }
 
@@ -569,13 +604,18 @@ static void renderParticles(bool offscreen)
     {
       glViewport(0,0, mWidth, mHeight);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);  
-
-      for(int i=0; i<4; i++)
-      {
-        blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
-        blurTexture(blurredNormal, normalBuffer, mWidth, mHeight);
-      }
-      blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
+      Timer timer;
+      timer.start();
+      // for(int i=0; i<1; i++)
+      // {
+      //   blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
+      //   blurTexture(blurredNormal, normalBuffer, mWidth, mHeight);
+      // }
+      //blurTexture(normalBuffer, blurredNormal, mWidth, mHeight);
+      blurTextureFast(normalBuffer, mWidth, mHeight);
+      timer.stop();
+      double time = timer.duration();
+      std::cout << "blurring:" << time * 1000 << std::endl;
     }
 }
 
@@ -628,7 +668,8 @@ static void renderFluid()
     glUnmapNamedBuffer(vbo_lighting_pos);
    
     //bind texture
-    glBindTexture(GL_TEXTURE_2D, blurredNormal);
+    //glBindTexture(GL_TEXTURE_2D, blurredNormal);
+    glBindTexture(GL_TEXTURE_2D, normalBuffer);
 
     //draw
     glDrawArrays(GL_POINTS, 0, numVertex);
@@ -651,6 +692,31 @@ static void blurTexture(GLuint input, GLuint output, int width, int height)
    glUseProgram(0);
 
    return;
+}
+
+static void blurTextureFast(GLuint texture, int width, int height)
+{
+   glUseProgram(fastGaussianBlur_program);
+   glUniform1i(0, width);
+   glUniform1i(1, height);
+   glBindSampler(0, fastGaussianBlur_sampler);
+
+   //horizontal blur
+   glUniform2f(2, 1.0/width, 0);
+   glUniform2f(3, 0.5/width, 0);
+   glBindTexture(GL_TEXTURE_2D, texture);
+   glBindImageTexture(1, fastBlurredNormaltmp, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+   glDispatchCompute((width+31)/32,(height+31)/32,1);
+
+   //vertical blur
+   glUniform2f(2, 0, 1.0/height);
+   glUniform2f(3, 0, 0.5/width);
+   glBindTexture(GL_TEXTURE_2D, fastBlurredNormaltmp);
+   glBindImageTexture(1, texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+   glDispatchCompute((width+31)/32,(height+31)/32,1);
+
+   glUseProgram(0);
+   return;  
 }
 
 static void setTransform()
@@ -684,7 +750,7 @@ static void update()
     simulator->update(delta);
     timer.stop(); 
     double time = timer.duration();
-    std::cout << "simulation:" << time*1000 << "ms" << std::endl;
+    //std::cout << "simulation:" << time*1000 << "ms" << std::endl;
 }
 
 //

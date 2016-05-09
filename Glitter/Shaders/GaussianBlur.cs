@@ -12,6 +12,24 @@ layout(binding = 1, rgba32f) writeonly uniform image2D outputImg;
 layout(local_size_x = 32,
        local_size_y = 32) in;
 
+const float gfilter[225] = {
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0.000001,  0.000001,  0.000001,  0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0.000001,  0.000014,  0.000055,  0.000088,  0.000055,  0.000014,  0.000001,  0, 0, 0, 0,
+0, 0, 0, 0.000001,  0.000036,  0.000362,  0.001445,  0.002289,  0.001445,  0.000362,  0.000036,  0.000001,  0, 0, 0,
+0, 0, 0, 0.000014,  0.000362,  0.003672,  0.014648,  0.023204,  0.014648,  0.003672,  0.000362,  0.000014,  0, 0, 0,
+0, 0, 0.000001,  0.000055,  0.001445,  0.014648,  0.058433,  0.092564,  0.058433,  0.014648,  0.001445,  0.000055,  0.000001,  0, 0,
+0, 0, 0.000001,  0.000088,  0.002289,  0.023204,  0.092564,  0.146632,  0.092564,  0.023204,  0.002289,  0.000088,  0.000001,  0, 0,
+0, 0, 0.000001,  0.000055,  0.001445,  0.014648,  0.058433,  0.092564,  0.058433,  0.014648,  0.001445,  0.000055,  0.000001,  0, 0,
+0, 0, 0, 0.000014,  0.000362,  0.003672,  0.014648,  0.023204,  0.014648,  0.003672,  0.000362,  0.000014,  0, 0, 0,
+0, 0, 0, 0.000001,  0.000036,  0.000362,  0.001445,  0.002289,  0.001445,  0.000362,  0.000036,  0.000001,  0, 0, 0,
+0, 0, 0, 0, 0.000001,  0.000014,  0.000055,  0.000088,  0.000055,  0.000014, 0.000001,  0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0.000001,  0.000001,  0.000001,  0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
 void main()
 {
     //acquire ID
@@ -20,19 +38,15 @@ void main()
     //only compute pixels falling inside the image
     if(coord.x < width && coord.y < height)
     {
-      vec4 value = vec4(0,0,0,0); 
-      value += imageLoad(inputImg, ivec2(coord.x - 1, coord.y - 1)) * 0.0625;
-      value += imageLoad(inputImg, ivec2(coord.x    , coord.y - 1)) * 0.125;
-      value += imageLoad(inputImg, ivec2(coord.x + 1, coord.y - 1)) * 0.0625;
-      value += imageLoad(inputImg, ivec2(coord.x -1 , coord.y))     * 0.125;
-      value += imageLoad(inputImg, ivec2(coord.x    , coord.y))     * 0.25;
-      value += imageLoad(inputImg, ivec2(coord.x +1 , coord.y))     * 0.125;
-      value += imageLoad(inputImg, ivec2(coord.x -1 , coord.y + 1)) * 0.0625;
-      value += imageLoad(inputImg, ivec2(coord.x    , coord.y + 1)) * 0.125;
-      value += imageLoad(inputImg, ivec2(coord.x +1 , coord.y + 1)) * 0.0625;
+      vec4 value = vec4(0,0,0,0);
+      for(int i=-7; i <=7; i ++)
+      {
+        for(int j=-7; j <=7; j++)
+        {
+          float weight = gfilter[(j+7)*15+(i+7)];
+          value += imageLoad(inputImg, ivec2(coord.x + i, coord.y + j)) * weight;
+        }
+      }
       imageStore(outputImg, ivec2(coord), value);
     }
-
-
-
 }

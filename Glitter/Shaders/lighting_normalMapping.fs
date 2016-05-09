@@ -34,6 +34,5 @@ void main()
    color += pow(max(0,dot(eye, reflect(ldir, normal))), shininess) * 
             vec4(specular,1);
    color.a = 1;
-
 }
 
